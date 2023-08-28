@@ -3,6 +3,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from llama_index.graph_stores.types import GraphStore
+from datetime import date
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,7 @@ class Neo4jGraphStore(GraphStore):
         url: str,
         database: str = "neo4j",
         node_label: str = "Entity",
+        document_node_label: str = "Document",
         **kwargs: Any,
     ) -> None:
         try:
@@ -47,6 +49,7 @@ class Neo4jGraphStore(GraphStore):
         except ImportError:
             raise ImportError("Please install neo4j: pip install neo4j")
         self.node_label = node_label
+        self.document_node_label = document_node_label
         self._driver = neo4j.GraphDatabase.driver(url, auth=(username, password))
         self._database = database
         self.schema = ""
@@ -161,6 +164,36 @@ class Neo4jGraphStore(GraphStore):
 
         with self._driver.session(database=self._database) as session:
             session.run(prepared_statement, {"subj": subj, "obj": obj})
+
+    def upsert_triplet(self, subj: str, rel: str, obj: str,file_name:str) -> None:
+        """Add triplet."""
+
+        if(rel.replace(" ", "_").upper() == "BELONGS_TO"):
+            query = f"""
+                MERGE (n1:Document {{title:"{file_name}"}})
+                MERGE (n2:{self.node_label} {{id:"{subj}",file_name:"{file_name}"}})
+                MERGE (n1)-[:{rel.replace(" ", "_").upper()}]->(n2)
+            """
+        else:
+            query = f"""
+                MERGE (n1:{self.node_label} {{id:"{subj}",file_name:"{file_name}"}})
+                MERGE (n2:{self.node_label} {{id:"{obj}",file_name:"{file_name}"}})
+                MERGE (n1)-[:{rel.replace(" ", "_").upper()}]->(n2)
+            """
+        print('neo4j cypher=====> \n',query)
+        with self._driver.session(database=self._database) as session:
+            session.run(query, {})
+
+    def create_document_node(self,document_name):
+        current_date = date.today()
+        query = """
+            MERGE (n1:`%s` {name:$document_name,created_at:$current_date})
+        """
+        prepared_statement = query % (
+            self.document_node_label
+        )
+        with self._driver.session(database=self._database) as session:
+            session.run(prepared_statement, {"document_name": document_name, "current_date": current_date})
 
     def delete(self, subj: str, rel: str, obj: str) -> None:
         """Delete triplet."""

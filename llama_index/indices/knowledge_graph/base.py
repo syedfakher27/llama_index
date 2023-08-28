@@ -79,9 +79,15 @@ class KnowledgeGraphIndex(BaseIndex[KG]):
                 max_knowledge_triplets=self.max_triplets_per_chunk
             )
         )
+        self.kg_triple_extract_template = (
+            self.kg_triple_extract_template.partial_format(
+                document_name="Sports of Pakistan"
+            )
+        )
         self._max_object_length = max_object_length
         self._kg_triplet_extract_fn = kg_triplet_extract_fn
-
+        if len(nodes):
+            self.file_name = nodes[0].metadata.get('file_name')
         super().__init__(
             nodes=nodes,
             index_struct=index_struct,
@@ -119,7 +125,8 @@ class KnowledgeGraphIndex(BaseIndex[KG]):
         if self._kg_triplet_extract_fn is not None:
             return self._kg_triplet_extract_fn(text)
         else:
-            return self._llm_extract_triplets(text)
+            res = self._llm_extract_triplets(text)
+            return res
 
     def _llm_extract_triplets(self, text: str) -> List[Tuple[str, str, str]]:
         """Extract keywords from text."""
@@ -159,6 +166,17 @@ class KnowledgeGraphIndex(BaseIndex[KG]):
                 continue
             results.append((subj, pred, obj))
         return results
+    
+    @staticmethod
+    def extract_new_triplets(triplets,file_name):
+        new_triplets = [triplet[0] for triplet in triplets]
+        new_triplets = set(new_triplets)
+        for i,triplet in enumerate(new_triplets):
+            if(triplet == triplets[i][2]):
+                new_triplets.remove(triplet)
+        triplets_out =  [(triplet,'BELONGS_TO',file_name) for triplet in new_triplets]  
+        triplets_out = triplets_out + triplets
+        return triplets_out
 
     def _build_index_from_nodes(self, nodes: Sequence[BaseNode]) -> KG:
         """Build the index from nodes."""
@@ -168,10 +186,15 @@ class KnowledgeGraphIndex(BaseIndex[KG]):
             nodes, self._show_progress, "Processing nodes"
         )
         for n in nodes_with_progress:
-            triplets = self._extract_triplets(
+            tripletss = self._extract_triplets(
                 n.get_content(metadata_mode=MetadataMode.LLM)
             )
+
+
+            triplets = self.extract_new_triplets(tripletss,self.file_name)
             logger.debug(f"> Extracted triplets: {triplets}")
+
+
             for triplet in triplets:
                 subj, _, obj = triplet
                 self.upsert_triplet(triplet)
@@ -226,7 +249,7 @@ class KnowledgeGraphIndex(BaseIndex[KG]):
             triplet (str): Knowledge triplet
 
         """
-        self._graph_store.upsert_triplet(*triplet)
+        self._graph_store.upsert_triplet(*triplet,file_name=self.file_name)
 
     def add_node(self, keywords: List[str], node: BaseNode) -> None:
         """Add node.
