@@ -167,7 +167,7 @@ class Neo4jGraphStore(GraphStore):
 
     def upsert_triplet(self, subj: str, rel: str, obj: str,file_name:str) -> None:
         """Add triplet."""
-
+        
         if(rel.replace(" ", "_").upper() == "BELONGS_TO"):
             query = f"""
                 MERGE (n1:Document {{title:"{file_name}"}})
@@ -181,8 +181,11 @@ class Neo4jGraphStore(GraphStore):
                 MERGE (n1)-[:{rel.replace(" ", "_").upper()}]->(n2)
             """
         print('neo4j cypher=====> \n',query)
-        with self._driver.session(database=self._database) as session:
+        try:
+         with self._driver.session(database=self._database) as session:
             session.run(query, {})
+        except Exception as e:
+            print('error==>',e)
 
     def create_document_node(self,document_name):
         current_date = date.today()
